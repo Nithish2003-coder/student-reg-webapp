@@ -19,7 +19,9 @@ node {
 
         stage ("sonar scan") {
             withCredentials([string(credentialsId: 'sonartoken', variable: 'sonarqubetoken')]) {
-                sh "${mavenHome}/bin/mvn sonar:sonar -Dsonar.login=$sonarqubetoken"
+                sh """
+                    ${mavenHome}/bin/mvn clean verify sonar:sonar -Dsonar.token=${sonarqubetoken}
+                   """  
             }
         }
 
