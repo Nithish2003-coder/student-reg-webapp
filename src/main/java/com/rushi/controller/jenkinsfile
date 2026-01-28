@@ -1,0 +1,118 @@
+properties([pipelineTriggers([githubPush()])])
+
+node {
+    def mavenHome = tool name: 'Maven-3.9.11', type: 'maven'
+    def tomcatserver = "172.31.14.189"
+    def tomcatSSHusername = "ec2-user"
+
+    try {
+
+        stage ("git clone") {
+            git branch: 'main',
+                credentialsId: 'githubcredentials',
+                url: 'https://github.com/Nithish2003-coder/student-reg-webapp.git'
+        }
+
+        stage ("maven build") {
+            sh "${mavenHome}/bin/mvn clean package"
+        }
+
+        stage ("sonar scan") {
+            withCredentials([string(credentialsId: 'sonartoken', variable: 'sonarqubetoken')]) {
+                sh "${mavenHome}/bin/mvn clean package -Dsonar.token=$sonarqubetoken"
+            }
+        }
+
+        stage ("upload war file to nexus") {
+            sh "${mavenHome}/bin/mvn clean deploy"
+        }
+
+        stage ("deploy to tomcat") {
+            sshagent(['TomcatServer_SSH_credentials']) {
+                sh """
+                ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatserver} sudo systemctl stop tomcat || true
+                sleep 20
+                ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatserver} rm /opt/tomcat/webapps/student-reg-webapp.war
+                scp -o StrictHostKeyChecking=no target/student-reg-webapp.war ${tomcatSSHusername}@${tomcatserver}:/opt/tomcat/webapps/student-reg-webapp.war
+                ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatserver} sudo systemctl start tomcat
+                """
+            }
+        }
+
+    } catch (err) {
+        currentBuild.result = 'FAILURE'
+        throw err
+    } finally {
+
+        def buildstatus = currentBuild.result ?: "SUCCESS"
+
+        emailext(
+            mimeType: 'text/html',
+            subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${buildstatus}",
+            to: "nithishchapireedy184@gmail.com",
+            body: """
+            <html>
+            <head>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        background-color: #f4f6f8;
+                        padding: 20px;
+                    }
+                    .container {
+                        background-color: #ffffff;
+                        padding: 20px;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                    }
+                    .success {
+                        color: #2e7d32;
+                        font-weight: bold;
+                    }
+                    .failure {
+                        color: #c62828;
+                        font-weight: bold;
+                    }
+                    .title {
+                        font-size: 20px;
+                        margin-bottom: 10px;
+                    }
+                    .footer {
+                        margin-top: 20px;
+                        font-size: 12px;
+                        color: #777;
+                    }
+                    a {
+                        color: #1565c0;
+                        text-decoration: none;
+                    }
+                </style>
+            </head>
+
+            <body>
+                <div class="container">
+                    <div class="title">🚀 Jenkins Build Notification</div>
+
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> #${env.BUILD_NUMBER}</p>
+                    <p><strong>Build Status:</strong>
+                        <span class="${buildstatus == 'SUCCESS' ? 'success' : 'failure'}">
+                            ${buildstatus}
+                        </span>
+                    </p>
+
+                    <p>
+                        🔍 <a href="${env.BUILD_URL}">View Jenkins Console Output</a>
+                    </p>
+
+                    <div class="footer">
+                        This is an automated email from Jenkins.<br/>
+                        Please do not reply.
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+        )
+    }
+}
