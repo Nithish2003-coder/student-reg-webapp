@@ -49,8 +49,49 @@ node {
         emailext(
             mimeType: 'text/html',
             subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${buildstatus}",
-            to: "nithishchapireedy184@gmail.com",
-            body: "Build Status: ${buildstatus}<br/>${env.BUILD_URL}"
+            to: "nithishchapireddy184@gmail.com",
+            body: """
+            <html>
+            <head>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        background-color: #f4f6f8;
+                        padding: 20px;
+                    }
+                    .box {
+                        background-color: #ffffff;
+                        padding: 20px;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                    }
+                    .success {
+                        color: #2e7d32;
+                        font-weight: bold;
+                    }
+                    .failure {
+                        color: #c62828;
+                        font-weight: bold;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="box">
+                    <h2>Jenkins Build Notification</h2>
+                    <p><b>Job:</b> ${env.JOB_NAME}</p>
+                    <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+                    <p><b>Status:</b>
+                        <span class="${buildstatus == 'SUCCESS' ? 'success' : 'failure'}">
+                            ${buildstatus}
+                        </span>
+                    </p>
+                    <p>
+                        <a href="${env.BUILD_URL}">View Console Output</a>
+                    </p>
+                </div>
+            </body>
+            </html>
+            """
         )
     }
 }
