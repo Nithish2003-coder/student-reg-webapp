@@ -19,12 +19,12 @@ node {
 
         stage ("sonar scan") {
             withCredentials([string(credentialsId: 'sonartoken', variable: 'sonarqubetoken')]) {
-                sh "${mavenHome}/bin/mvn clean verify -Dsonar.token=${sonarqubetoken}"
+                sh "${mavenHome}/bin/mvn verify sonar:sonar -Dsonar.token=${sonarqubetoken}"
             }
         }
 
         stage ("upload war file to nexus") {
-            sh "${mavenHome}/bin/mvn clean deploy"
+            sh "${mavenHome}/bin/mvn deploy"
         }
 
         stage ("deploy to tomcat") {
