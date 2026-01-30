@@ -7,12 +7,6 @@ node {
 
     try {
 
-        stage ("git clone") {
-            git branch: 'main',
-                credentialsId: 'githubcredentials',
-                url: 'https://github.com/Nithish2003-coder/student-reg-webapp.git'
-        }
-
         stage ("maven build") {
             sh "${mavenHome}/bin/mvn clean package"
         }
