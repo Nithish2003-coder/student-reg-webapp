@@ -1,91 +1,117 @@
-properties([pipelineTriggers([githubPush()])])
+pipeline {
 
-node {
-    def mavenHome = tool name: 'Maven-3.9.11', type: 'maven'
-    def tomcatserver = "172.31.14.189"
-    def tomcatSSHusername = "ec2-user"
-
-    try {
-
-        stage ("maven build") {
-            sh "${mavenHome}/bin/mvn clean package"
-        }
-
-        stage ("sonar scan") {
-            withCredentials([string(credentialsId: 'sonartoken', variable: 'sonarqubetoken')]) {
-                sh "${mavenHome}/bin/mvn clean verify sonar:sonar -Dsonar.token=${sonarqubetoken}"
-            }
-        }
-
-        stage ("upload war file to nexus") {
-            sh "${mavenHome}/bin/mvn clean deploy"
-        }
-
-        stage ("deploy to tomcat") {
-            sshagent(['TomcatServer_SSH_credentials']) {
-                sh """
-                ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatserver} sudo systemctl stop tomcat || true
-                sleep 20
-                ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatserver} rm -f /opt/tomcat/webapps/student-reg-webapp.war
-                scp -o StrictHostKeyChecking=no target/student-reg-webapp.war ${tomcatSSHusername}@${tomcatserver}:/opt/tomcat/webapps/student-reg-webapp.war
-                ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatserver} sudo systemctl start tomcat
-                """
-            }
-        }
-
-    } catch (err) {
-        currentBuild.result = 'FAILURE'
-        throw err
-    } finally {
-
-        def buildstatus = currentBuild.result ?: "SUCCESS"
-
-        emailext(
-            mimeType: 'text/html',
-            subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${buildstatus}",
-            to: "nithishchapireddy184@gmail.com",
-            body: """
-            <html>
-            <head>
-                <style>
-                    body {
-                        font-family: Arial, sans-serif;
-                        background-color: #f4f6f8;
-                        padding: 20px;
-                    }
-                    .box {
-                        background-color: #ffffff;
-                        padding: 20px;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-                    }
-                    .success {
-                        color: #2e7d32;
-                        font-weight: bold;
-                    }
-                    .failure {
-                        color: #c62828;
-                        font-weight: bold;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="box">
-                    <h2>Jenkins Build Notification</h2>
-                    <p><b>Job:</b> ${env.JOB_NAME}</p>
-                    <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
-                    <p><b>Status:</b>
-                        <span class="${buildstatus == 'SUCCESS' ? 'success' : 'failure'}">
-                            ${buildstatus}
-                        </span>
-                    </p>
-                    <p>
-                        <a href="${env.BUILD_URL}">View Console Output</a>
-                    </p>
-                </div>
-            </body>
-            </html>
-            """
-        )
+    agent any
+    triggers {
+        githubPush()
     }
+
+    options {
+        buildDiscarder logRotator(numToKeepStr: '5')
+        disableConcurrentBuilds()
+        timeout(time: 10,unit: 'MINUTES')
+    }
+
+    environment {
+
+        SONARQUBE_HOST = "http://172.31.8.134:9000"
+        SONARQUBE_TOKEN = credentials('SonarQubeToken')
+        tomcatserverSSHUserName = "ec2-user"
+        tomcatSystemIP = "172.31.19.130"
+
+    }
+
+    tools {
+        maven 'Maven-3.9.11'
+    }
+
+    stages{
+
+        stage("Build Stage"){
+
+         steps {
+                sh "mvn clean package"
+           }
+        }
+
+        stage("Sonar Scan"){
+            steps {
+                sh "mvn clean verify sonar:sonar -Dsonar.host=${SONARQUBE_HOST} -Dsonar.token=${SONARQUBE_TOKEN}"
+            }
+        }
+
+        stage("Upload Artificat To Nexus"){
+            steps {
+                sh "mvn clean deploy"
+            }
+        }
+
+        stage("Deploy War File To Tomcat"){
+
+            when {
+                expression { env.BRANCH_NAME ==  "development" }
+            }
+
+            steps {
+                sshagent(['TomcatServer_SSH_Credetails']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${tomcatserverSSHUserName}@${tomcatSystemIP} sudo systemctl stop tomcat
+                        sleep 20
+                        ssh -o StrictHostKeyChecking=no ${tomcatserverSSHUserName}@${tomcatSystemIP} rm /opt/tomcat/webapps/student-reg-webapp.war || true
+                        scp -o StrictHostKeyChecking=no target/student-reg-webapp.war ${tomcatserverSSHUserName}@${tomcatSystemIP}:/opt/tomcat/webapps/student-reg-webapp.war
+                        ssh -o StrictHostKeyChecking=no ${tomcatserverSSHUserName}@${tomcatSystemIP} sudo systemctl start tomcat
+                        """
+                }
+            }
+        }
+
+        stage("Deploy War File To QA Server"){
+
+
+
+            when {
+                expression { env.BRANCH_NAME ==  "QA" }
+            }
+
+            steps {
+                sshagent(['TomcatServer_SSH_Credetails']) {
+                  sh """
+                    echo "Deploying to QA Server"
+                    """
+                }
+            }
+        }
+
+       stage("Deploy War File To Prod Server"){
+
+            when {
+                expression { env.BRANCH_NAME ==  "main" }
+            }
+            steps {
+              sshagent(['TomcatServer_SSH_Credetails']) {
+                sh """
+                  echo "Deploying to Prod Server"
+                    """
+              }
+            }
+        }
+
+    }
+
+
+
+    post {
+        success {
+            slackSend channel: 'lic-app-team', color: "good", message: "Jenkins Job ${env.JOB_NAME} - ${env.BUILD_NUMBER} - Success . Please heck console output at ${env.BUILD_URL}"
+        }
+
+        failure {
+
+            slackSend channel: 'lic-app-team', color: "danager", message: "Jenkins Job ${env.JOB_NAME} - ${env.BUILD_NUMBER} - Failed . Please Check console output at ${env.BUILD_URL}"
+        }
+
+        always {
+            cleanWs()
+        }
+    }
+
 }
