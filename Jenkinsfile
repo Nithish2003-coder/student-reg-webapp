@@ -39,7 +39,11 @@ pipeline{
                 sh "mvn clean deploy"
             }
         }
-        stage("Deploy war to tomcat"){
+        stage("Deploy war to tomcat in dev server"){
+            when {
+                expression { env.BRANCH_NAME ==  "development" }
+            }
+
             steps{
                 sshagent(['TomcatServer_SSH_credentials']) {
                     sh """
@@ -50,6 +54,40 @@ pipeline{
                        ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatIP} sudo systemctl start tomcat
                     """
                 }
+            }
+        }
+        stage("Deploy War File To QA Server"){
+            
+            
+            when {
+                expression { env.BRANCH_NAME ==  "QA" }
+            }
+
+            steps {
+                sshagent(['TomcatServer_SSH_Credetails']) {
+                  sh """
+                    echo "Deploying to QA Server"
+                       ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatIP} sudo systemctl stop tomcat || true
+                       sleep 20
+                       ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatIP} rm -f /opt/tomcat/webapps/student-reg-webapp.war
+                       scp -o StrictHostKeyChecking=no target/student-reg-webapp.war ${tomcatSSHusername}@${tomcatIP}:/opt/tomcat/webapps/student-reg-webapp.war
+                       ssh -o StrictHostKeyChecking=no ${tomcatSSHusername}@${tomcatIP} sudo systemctl start tomcat
+                    """
+                }
+            }
+        }
+  
+       stage("Deploy War File To Prod Server"){
+             
+            when {
+                expression { env.BRANCH_NAME ==  "main" }
+            }
+            steps {
+              sshagent(['TomcatServer_SSH_Credetails']) {
+                sh """
+                  echo "Deploying to Prod Server"
+                    """
+              }
             }
         }
     }
